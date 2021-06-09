@@ -1,0 +1,32 @@
+# extrinsic calibration between color cams and pose device
+# including relative rotation and relative translation 
+# rotation is in form of euler angle (xyz, degree), active and extrinsic rotation.
+0:
+  r_rot:
+    [0, 0, 0]
+  r_trans:
+    [0, -0.068, 0]
+
+1:
+  r_rot:
+    [0, -45, 0]
+  r_trans:
+    [0.0478, -0.068, 0.0198]
+
+2:
+  r_rot:
+    [0, -90, 0]
+  r_trans:
+    [0.0676, -0.068, 0.0676]
+
+3:
+  r_rot:
+    [0, 90, 0]
+  r_trans:
+    [-0.0676, -0.068, 0.0676]
+
+4:
+  r_rot:
+    [0, 45, 0]
+  r_trans:
+    [-0.0478, -0.068, 0.0198]
