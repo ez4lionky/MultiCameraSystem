@@ -85,7 +85,6 @@ class CamThread(threading.Thread):
             if not result:
                 print(f'{self.cam_id} not available!')
             else:
-                print(f'{self.cam_id}: start time: {st}, end time: {et}, interval: {et - st}')
                 img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
                 self.frame = CFrame(st, et, img_rgb, self.cam_id)
                 if self.save:
