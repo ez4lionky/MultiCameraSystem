@@ -81,13 +81,15 @@ class CamThread(threading.Thread):
                 break
             st = time.time()
             result, img_bgr = self.capture.read()
-            img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
             et = time.time()
-            self.frame = CFrame(st, et, img_rgb, self.cam_id)
             if not result:
                 print(f'{self.cam_id} not available!')
-            elif self.save:
-                cv2.imwrite(str(self.save_path / f'{et}.png'), img_bgr)  # including data transfer time
+            else:
+                print(f'{self.cam_id}: start time: {st}, end time: {et}, interval: {et - st}')
+                img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+                self.frame = CFrame(st, et, img_rgb, self.cam_id)
+                if self.save:
+                    cv2.imwrite(str(self.save_path / f'{et:.3f}.png'), img_bgr)  # including data transfer time
                 # cv2.imwrite(str(self.save_path / f'{st + 1 / 30}.png'), img)  # start_time + 1/30s
 
 
@@ -140,7 +142,7 @@ class PoseThread(threading.Thread):
                 fps = f'{fps:.3f}'
                 self.rs_frame = RSFrame(frame_number, ts, fps, img, pose)
                 if self.save:
-                    cv2.imwrite(str(self.save_path / f'{ts}.png'), img)
+                    cv2.imwrite(str(self.save_path / f'{ts:.3f}.png'), img)
                     if self.pose_data:
                         grp = self.pose_data.create_group(str(ts))
                         tvec = pose.translation
@@ -158,7 +160,7 @@ def find_nearest(array, value):
 
 
 class MultiCameraSystem:
-    def __init__(self, cam_ids, save_path=Path('data'), width=640, height=480, fps=120.0):
+    def __init__(self, cam_ids, save_path=Path('data'), width=640, height=480, fps=30.0):
         self.cam_num = len(cam_ids)
         self.save_path = save_path
         self.cam_calib = self.read_calib(self)
@@ -393,8 +395,8 @@ class MultiCameraSystem:
 
 if __name__ == '__main__':
     cam_id_list = []
-    # all_cam_num = 5
-    all_cam_num = 3
+    all_cam_num = 5
+    # all_cam_num = 3
     init_id = 2
     for cam_idx in range(all_cam_num):
         cam_id_list.append(f'/dev/video{init_id + cam_idx * 2}')
