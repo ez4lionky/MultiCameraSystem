@@ -19,9 +19,10 @@ import pytransform3d.rotations as pr
 
 # webcam frame
 class CFrame:
-    def __init__(self, st, et, image, cam_id):
-        self.st = st
-        self.et = et
+    def __init__(self, frame_number, ts, fps, image, cam_id):
+        self.frame_number = frame_number
+        self.timestamp = ts
+        self.fps = fps
         self.image = image
         self.cam_id = cam_id
 
@@ -61,6 +62,10 @@ class CamThread(threading.Thread):
         cam.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         self.capture = cam
 
+        uptime_s = time.clock_gettime(time.CLOCK_MONOTONIC)
+        epoch_s = time.time()
+        self.offset_s = epoch_s - uptime_s
+
         # config and data
         self.save_path = save_path / f'cam{index}_frames'
         if not self.save_path.exists():
@@ -69,6 +74,8 @@ class CamThread(threading.Thread):
         self.save = False
         self.stop = False
         self.frame = None
+        self.pre_frame = None
+        self.frame_number = 0
 
         self.thread = Thread(target=self.update, args=())
         self.thread.daemon = True
@@ -79,16 +86,26 @@ class CamThread(threading.Thread):
             if self.stop:
                 self.capture.release()
                 break
-            st = time.time()
             result, img_bgr = self.capture.read()
-            et = time.time()
+            local_cam_s = self.capture.get(cv2.CAP_PROP_POS_MSEC) / 1000
             if not result:
                 print(f'{self.cam_id} not available!')
             else:
+                time_stamp = local_cam_s + self.offset_s
                 img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-                self.frame = CFrame(st, et, img_rgb, self.cam_id)
+                if self.frame is None:
+                    fps = 0
+                    self.frame = CFrame(self.frame_number, time_stamp, fps, img_rgb, self.cam_id)
+                    self.pre_frame = self.frame
+                else:
+                    self.pre_frame = self.frame
+                    fps = 1 / (time_stamp - self.pre_frame.timestamp)
+                    fps = f'{fps:.3f}'
+                    self.frame = CFrame(self.frame_number, time_stamp, fps, img_rgb, self.cam_id)
+
+                self.frame_number += 1
                 if self.save:
-                    cv2.imwrite(str(self.save_path / f'{et:.3f}.png'), img_bgr)  # including data transfer time
+                    cv2.imwrite(str(self.save_path / f'{time_stamp:.3f}.png'), img_bgr)  # including data transfer time
                 # cv2.imwrite(str(self.save_path / f'{st + 1 / 30}.png'), img)  # start_time + 1/30s
 
 
@@ -188,7 +205,7 @@ class MultiCameraSystem:
 
         # 10s
         st = time.time()
-        while time.time() - st < 120:
+        while time.time() - st < 180:
             self.visual_cams()
         self.stop_all_cams()
         self.sync_streams()
@@ -248,7 +265,7 @@ class MultiCameraSystem:
                     if cam_thread.frame is not None:
                         cur_frame = cam_thread.frame
                         sub_imgs[i].set_data(cur_frame.image)
-                        axes[i].set_title(f'fps: {1 / (cur_frame.et - cur_frame.st):.2f}')
+                        axes[i].set_title(f'fps: {cur_frame.fps}')
             plt.show()
             plt.pause(0.01)
         return fig, axes, sub_imgs
@@ -284,13 +301,13 @@ class MultiCameraSystem:
                     frame_number += 1
             frame_numbers.append(frame_number)
         self.sync_frames = sync_frames
-        # self.delay_analysis()
+        self.delay_analysis()
         # self.plot_sys_traj(pose_tvecs, pose_rotqs)
         out_file = h5py.File(str(self.save_path / 'sync_frames.h5'), 'w')
         for k in sync_frames.keys():
             curk_grp = out_file.create_group(str(k))
             for sf in sync_frames[k]:
-                grp = curk_grp.create_group(str(sf.frame_number))
+                grp = curk_grp.create_group(str(sf.frame_number).zfill(6))
                 grp.create_dataset('color_ts', data=sf.color_ts)
                 grp.create_dataset('pose_ts', data=sf.pose_ts)
                 grp.create_dataset('pose_id', data=sf.pose_id)
@@ -319,6 +336,7 @@ class MultiCameraSystem:
             plt.ylabel('Delay (ms)')
             plt.title('Delay between synchronized frame pair (per color camera and the localization device)')
             plt.show()
+            plt.pause(1)
 
     def plot_sys_traj(self, pose_tvecs, pose_rotqs, sync_frames=None):
         if sync_frames is None:
