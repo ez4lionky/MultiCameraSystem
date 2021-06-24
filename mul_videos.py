@@ -15,6 +15,16 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 import pytransform3d.transformations as pt
 import pytransform3d.rotations as pr
+from argparse import ArgumentParser
+
+
+def parse_args():
+    parser = ArgumentParser(description='Multi-view system')
+    parser.add_argument('--save_path', type=str, default='data', help='Data save path')
+    parser.add_argument('--calib_file', type=str, default='cam_calib.yaml', help='The external calibration file')
+    parser.add_argument('--skip_records', type=bool, default=False, help='Whether to skip recording live stream')
+    args = parser.parse_args()
+    return args
 
 
 # webcam frame
@@ -176,38 +186,40 @@ def find_nearest(array, value):
 
 
 class MultiCameraSystem:
-    def __init__(self, cam_ids, save_path=Path('data'), width=640, height=480, fps=30.0):
-        self.cam_num = len(cam_ids)
+    def __init__(self, args, cam_ids, width=640, height=480, fps=30.0):
+        save_path = Path(args.save_path)
         self.save_path = save_path
-        self.cam_calib = self.read_calib(self)
+        self.cam_num = len(cam_ids)
+        self.cam_calib = self.read_calib(self, args.calib_file)
         self.sync_frames = None
 
-        cam_threads = []
-        self.pose_thread = PoseThread(save_path)
-        self.width, self.height, self.fps = width, height, fps
+        if not args.skip_records:
+            cam_threads = []
+            self.pose_thread = PoseThread(save_path)
+            self.width, self.height, self.fps = width, height, fps
 
-        plt.ion()
-        self.figure, self.axes, self.sub_imgs = self.visual_cams()
-        for i, cam_id in enumerate(cam_ids):
-            cam_threads.append(CamThread(i, cam_id, save_path, width, height, fps))
-        self.cam_threads = cam_threads
-        print("Active threads", threading.activeCount())
+            plt.ion()
+            self.figure, self.axes, self.sub_imgs = self.visual_cams()
+            for i, cam_id in enumerate(cam_ids):
+                cam_threads.append(CamThread(i, cam_id, save_path, width, height, fps))
+            self.cam_threads = cam_threads
+            print("Active threads", threading.activeCount())
 
-        while True:
-            init_done = True
-            init_done = init_done & (self.pose_thread.rs_frame is not None)
-            for cam_thread in cam_threads:
-                init_done = init_done & (cam_thread.frame is not None)
-            if init_done:
-                self.init_all()
-                break
-            continue
+            while True:
+                init_done = True
+                init_done = init_done & (self.pose_thread.rs_frame is not None)
+                for cam_thread in cam_threads:
+                    init_done = init_done & (cam_thread.frame is not None)
+                if init_done:
+                    self.init_all()
+                    break
+                continue
 
-        # 10s
-        st = time.time()
-        while time.time() - st < 180:
-            self.visual_cams()
-        self.stop_all_cams()
+            # 10s
+            st = time.time()
+            while time.time() - st < 180:
+                self.visual_cams()
+            self.stop_all_cams()
         self.sync_streams()
         self.analyse_interval()
         return
@@ -294,15 +306,15 @@ class MultiCameraSystem:
                 is_sync = math.fabs(curc_ts - nts) * 1000 < 20
                 if is_sync:
                     pose = pt.transform_from_pq(np.concatenate([pose_tvecs[nid], pose_rotqs[nid]]))  # xyz wxyz
-                    cpose = pt.concat(pose, self.cam_calib[cam_id])
+                    cpose = pose.dot(self.cam_calib[cam_id])
                     cpq = pt.pq_from_transform(cpose)  # x, y, z, qw, qx, qy, qz
                     sframe = SyncFrame(cam_id, frame_number, curc_ts, nts, nid, cpq)
                     sync_frames[cam_id].append(sframe)
                     frame_number += 1
             frame_numbers.append(frame_number)
         self.sync_frames = sync_frames
-        self.delay_analysis()
-        # self.plot_sys_traj(pose_tvecs, pose_rotqs)
+        # self.delay_analysis()
+        self.plot_sys_traj(pose_tvecs, pose_rotqs)
         out_file = h5py.File(str(self.save_path / 'sync_frames.h5'), 'w')
         for k in sync_frames.keys():
             curk_grp = out_file.create_group(str(k))
@@ -341,17 +353,39 @@ class MultiCameraSystem:
     def plot_sys_traj(self, pose_tvecs, pose_rotqs, sync_frames=None):
         if sync_frames is None:
             sync_frames = self.sync_frames
-
-        all_pose_ids = [sf.pose_id for k in sync_frames.keys() for sf in sync_frames[k]]
-        _, uniq_idx, inverse_idx = np.unique(all_pose_ids, return_index=True, return_inverse=True)
+        # all_sync_frames = [j for i in sync_frames.values() for j in i]
         all_sync_frames = list(sync_frames.values())
-        for i in uniq_idx:
-            cur_pose_id = all_pose_ids[i]
-            cur_frame_id = np.where(inverse_idx == cur_pose_id)[0]
-            sfs = all_sync_frames[cur_frame_id]
-            ref_pose = np.concatenate(pose_tvecs[cur_pose_id], pose_rotqs[cur_pose_id])
+
+        for sfs in all_sync_frames:
+            tvecs = []
             for sf in sfs:
-                cur_cam_pose = pt.transform_from_pq(ref_pose)
+                tvecs.append(sf.cam_pq[:3])
+            tvecs = np.vstack(tvecs)
+            plt.plot(tvecs[:, 0], tvecs[:, 2])
+
+        plt.ioff()
+        plt.show()
+
+        # plot in 3d
+        # fig = plt.figure()
+        # ax = fig.gca(projection='3d')
+        # ax.set_title("Camera trajs")
+        # ax.set_xlabel("x")
+        # ax.set_ylabel("y")
+        # ax.set_zlabel("z")
+        #
+        # ax.plot(tvecs[:, 0], tvecs[:, 1], tvecs[:, 2], c='r')
+
+        # plot by pose_id
+        # all_pose_ids = [sf.pose_id for k in sync_frames.keys() for sf in sync_frames[k]]
+        # _, uniq_idx, inverse_idx = np.unique(all_pose_ids, return_index=True, return_inverse=True)
+        # for i in uniq_idx:
+        #     cur_pose_id = all_pose_ids[i]
+        #     cur_frame_id = np.where(inverse_idx == cur_pose_id)[0]
+        #     sfs = all_sync_frames[cur_frame_id]
+        #     ref_pose = np.concatenate(pose_tvecs[cur_pose_id], pose_rotqs[cur_pose_id])
+        #     for sf in sfs:
+        #         cur_cam_pose = pt.transform_from_pq(ref_pose)
 
     def analyse_interval(self):
         frame_num = 20
@@ -411,11 +445,11 @@ class MultiCameraSystem:
 
 
 if __name__ == '__main__':
+    args = parse_args()
     cam_id_list = []
     all_cam_num = 5
     # all_cam_num = 3
     init_id = 2
     for cam_idx in range(all_cam_num):
         cam_id_list.append(f'/dev/video{init_id + cam_idx * 2}')
-
-    mcs = MultiCameraSystem(cam_id_list)
+    mcs = MultiCameraSystem(args, cam_id_list)
