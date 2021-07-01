@@ -185,6 +185,10 @@ def find_nearest(array, value):
         return array[idx-1], idx - 1
 
 
+# the system class is the entrance of system,
+# boost cameras and realsense 265 threads when init
+# the rgb camera is fetched by device id (indexed by specific hub port)
+# T265 has its unique device id and can be easily fetched by SDK.
 class MultiCameraSystem:
     def __init__(self, args, cam_ids, width=640, height=480, fps=30.0):
         save_path = Path(args.save_path)
@@ -215,7 +219,7 @@ class MultiCameraSystem:
                     break
                 continue
 
-            # 10s
+            # record in a fixed interval then stop
             st = time.time()
             while time.time() - st < 180:
                 self.visual_cams()
@@ -224,6 +228,8 @@ class MultiCameraSystem:
         self.analyse_interval()
         return
 
+    # read the extrinsic calibration (fixed constants),
+    # obtained by manual measurement and calculation.
     @staticmethod
     def read_calib(self, calib_file='cam_calib.yaml'):
         f = open(calib_file, 'r')
@@ -248,6 +254,7 @@ class MultiCameraSystem:
         for cam_thread in self.cam_threads:
             cam_thread.save = True
 
+    # visualize the frames from cameras and T265
     def visual_cams(self):
         cam_num = self.cam_num + 1
         ts = 0
@@ -282,6 +289,8 @@ class MultiCameraSystem:
             plt.pause(0.01)
         return fig, axes, sub_imgs
 
+    # synchronize all cameras and T265 frames, which means assign every camera frame a T265 frame (corresponding pose)
+    # it's synchronized by timestamp recorded during the recording.
     def sync_streams(self):
         cam_num = self.cam_num
         pose_file = h5py.File(str(self.save_path / 'pose_frames/PoseFrames.h5'), 'r')
@@ -313,7 +322,7 @@ class MultiCameraSystem:
                     frame_number += 1
             frame_numbers.append(frame_number)
         self.sync_frames = sync_frames
-        # self.delay_analysis()
+        self.delay_analysis()
         self.plot_sys_traj(pose_tvecs, pose_rotqs)
         out_file = h5py.File(str(self.save_path / 'sync_frames.h5'), 'w')
         for k in sync_frames.keys():
@@ -325,6 +334,7 @@ class MultiCameraSystem:
                 grp.create_dataset('pose_id', data=sf.pose_id)
                 grp.create_dataset('cam_pq', data=sf.cam_pq)
 
+    # analysis the delay for each synchronized rgb camera frame.
     def delay_analysis(self, sync_frames=None, vis=True):
         if sync_frames is None:
             sync_frames = self.sync_frames
@@ -350,6 +360,8 @@ class MultiCameraSystem:
             plt.show()
             plt.pause(1)
 
+    # plot the whole system trajectory in 3d space, not finished yet
+    # here only retained simple visualisation in xz plane.
     def plot_sys_traj(self, pose_tvecs, pose_rotqs, sync_frames=None):
         if sync_frames is None:
             sync_frames = self.sync_frames
@@ -387,6 +399,7 @@ class MultiCameraSystem:
         #     for sf in sfs:
         #         cur_cam_pose = pt.transform_from_pq(ref_pose)
 
+    # analyse the system synchronization situation in initial 2s interval.
     def analyse_interval(self):
         frame_num = 20
         frame_buffers = list(self.sync_frames.values())
