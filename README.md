@@ -1,5 +1,5 @@
 # MultiCameraSystem
-#### Synchronize multiple (greater than 4) cameras with Realsense T265 tracking.
+#### Synchronize multiple (greater than 4) cameras with Realsense [T265](https://www.intelrealsense.com/zh-hans/tracking-camera-t265/) tracking device.
 
 You can plug multiple cameras by one hub into your PC, before run the code, 
 you need to ensure the device id is correct. While running the code, 
